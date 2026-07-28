@@ -110,6 +110,42 @@ def test_insecure_defaults_off_for_unrecognised_values(monkeypatch):
     assert parse_args([]).insecure is False
 
 
+def test_kubernetes_service_link_variable_does_not_kill_startup(monkeypatch, caplog):
+    """Regression: a Service named `truenas-exporter` crash-looped the pod.
+
+    The kubelet injects a legacy Docker-link variable for every Service in the
+    namespace, named after the Service with dashes uppercased to underscores.
+    A Service called `truenas-exporter` therefore produces
+    TRUENAS_EXPORTER_PORT=tcp://10.97.147.236:9819 — colliding exactly with
+    this exporter's own port setting, and `int()` on it raised ValueError
+    before argparse ever ran.
+
+    The chart now sets enableServiceLinks: false, but the binary must not
+    depend on that: raw manifests and Compose users can still hit it.
+    """
+    monkeypatch.setenv("TRUENAS_EXPORTER_PORT", "tcp://10.97.147.236:9819")
+
+    with caplog.at_level("WARNING"):
+        args = parse_args([])
+
+    assert args.port == 9819, "must fall back to the default rather than crash"
+    assert "enableServiceLinks" in caplog.text, (
+        "the warning should name the fix, since the cause is not obvious "
+        "from a ValueError about a URL"
+    )
+
+
+def test_a_non_numeric_timeout_falls_back_rather_than_crashing(monkeypatch):
+    monkeypatch.setenv("TRUENAS_TIMEOUT", "not-a-number")
+    assert parse_args([]).timeout == 15.0
+
+
+def test_an_empty_numeric_env_var_uses_the_default(monkeypatch):
+    """An unset-but-present variable is common in Compose and Helm templating."""
+    monkeypatch.setenv("TRUENAS_EXPORTER_PORT", "")
+    assert parse_args([]).port == 9819
+
+
 def test_url_and_port_come_from_the_environment(monkeypatch):
     monkeypatch.setenv("TRUENAS_URL", "nas.example.com")
     monkeypatch.setenv("TRUENAS_EXPORTER_PORT", "9999")

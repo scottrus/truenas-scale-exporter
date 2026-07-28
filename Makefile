@@ -220,6 +220,8 @@ helm-template:
 			|| { echo "FAIL: ServiceMonitor not rendered"; exit 1; }; \
 		grep -q 'kind: VMServiceScrape' /tmp/tnse-scrapes.yaml \
 			|| { echo "FAIL: VMServiceScrape not rendered"; exit 1; }; \
+		grep -q 'enableServiceLinks: false' /tmp/tnse-inline.yaml \
+			|| { echo "FAIL: enableServiceLinks must default to false — a Service named truenas-exporter would otherwise inject TRUENAS_EXPORTER_PORT and kill the container"; exit 1; }; \
 		echo "    all permutations rendered as expected"; \
 	fi
 

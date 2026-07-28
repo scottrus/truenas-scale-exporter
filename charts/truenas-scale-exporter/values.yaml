@@ -28,6 +28,12 @@ truenas:
 # -- Log level: DEBUG, INFO, WARNING, ERROR.
 logLevel: INFO
 
+# -- Whether the kubelet injects legacy Docker-link environment variables for
+# every Service in the namespace. Keep this false: a Service named
+# `truenas-exporter` would inject TRUENAS_EXPORTER_PORT=tcp://<ip>:9819, which
+# collides with this exporter's own port setting. Nothing here consumes them.
+enableServiceLinks: false
+
 image:
   repository: ghcr.io/scottrus/truenas-scale-exporter
   # -- Overrides the image tag; defaults to the chart's appVersion.

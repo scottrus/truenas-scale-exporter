@@ -33,6 +33,12 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "truenas-scale-exporter.serviceAccountName" . }}
       automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      # The kubelet otherwise injects a legacy Docker-link variable for every
+      # Service in the namespace. A Service named `truenas-exporter` yields
+      # TRUENAS_EXPORTER_PORT=tcp://<ip>:9819, which collides exactly with this
+      # exporter's own port setting and kills the container at startup. The
+      # exporter needs none of these variables.
+      enableServiceLinks: {{ .Values.enableServiceLinks }}
       {{- with .Values.priorityClassName }}
       priorityClassName: {{ . }}
       {{- end }}

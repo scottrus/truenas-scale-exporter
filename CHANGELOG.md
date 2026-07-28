@@ -10,6 +10,28 @@ dashboards and alerting rules downstream.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-28
+
+### Fixed
+
+- **The exporter crash-looped when the Kubernetes Service was named
+  `truenas-exporter`.** The kubelet injects a legacy Docker-link variable for
+  every Service in the namespace, named after the Service with dashes
+  uppercased to underscores. A Service called `truenas-exporter` therefore sets
+  `TRUENAS_EXPORTER_PORT=tcp://<clusterIP>:9819`, which collides exactly with
+  this exporter's own port setting — and the container died at startup with
+  `ValueError: invalid literal for int() with base 10: 'tcp://...'`.
+
+  Anyone naming their release `truenas-exporter`, the most obvious name, hit
+  this. Fixed at both layers:
+
+  - The chart now sets `enableServiceLinks: false` (new `enableServiceLinks`
+    value). Nothing here consumes those variables.
+  - Numeric environment variables that do not parse now fall back to their
+    default with a warning naming the fix, instead of raising. Raw manifests
+    and Compose users can still hit the collision, so the binary must not
+    depend on the chart to protect it.
+
 ## [0.1.1] - 2026-07-28
 
 Re-release of 0.1.0. The 0.1.0 release workflow published the image but then
@@ -73,6 +95,7 @@ Initial release.
 - API key accepted from a file, so it need not enter the environment or the
   process table.
 
-[Unreleased]: https://github.com/scottrus/truenas-scale-exporter/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/scottrus/truenas-scale-exporter/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/scottrus/truenas-scale-exporter/releases/tag/v0.1.2
 [0.1.1]: https://github.com/scottrus/truenas-scale-exporter/releases/tag/v0.1.1
 [0.1.0]: https://github.com/scottrus/truenas-scale-exporter/releases/tag/v0.1.0
