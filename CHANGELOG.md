@@ -10,7 +10,31 @@ dashboards and alerting rules downstream.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-28
+
+Re-release of 0.1.0. The 0.1.0 release workflow published the image but then
+failed, so no chart, GitHub release, or provenance attestation was produced.
+**Use 0.1.1; 0.1.0 is incomplete.**
+
+### Fixed
+
+- Release workflow now grants `attestations: write`, without which
+  `actions/attest-build-provenance` fails with *"Resource not accessible by
+  integration"* — after the image has already been pushed, leaving a partial
+  release.
+
+### Changed
+
+- Release workflow permissions are now scoped per job rather than granted
+  blanket at workflow level. The default is `contents: read`; each job requests
+  only what it needs (`image` gets packages/id-token/attestations, `chart` gets
+  packages, `release` gets contents). Previously every job ran with
+  `contents: write` whether it needed it or not.
+
 ## [0.1.0] - 2026-07-28
+
+**Incomplete — superseded by 0.1.1.** The image published, but the release run
+failed before the chart, GitHub release, or attestation were created.
 
 Initial release.
 
@@ -49,5 +73,6 @@ Initial release.
 - API key accepted from a file, so it need not enter the environment or the
   process table.
 
-[Unreleased]: https://github.com/scottrus/truenas-scale-exporter/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/scottrus/truenas-scale-exporter/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/scottrus/truenas-scale-exporter/releases/tag/v0.1.1
 [0.1.0]: https://github.com/scottrus/truenas-scale-exporter/releases/tag/v0.1.0

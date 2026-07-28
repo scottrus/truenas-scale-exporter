@@ -5,10 +5,10 @@ on:
     tags:
       - "v*.*.*"
 
+# Default to read-only and grant per job. A blanket `contents: write` here
+# would hand the token write access to jobs that only build and scan.
 permissions:
-  contents: write   # create the GitHub release
-  packages: write   # push image + chart to GHCR
-  id-token: write   # keyless signing / provenance attestation
+  contents: read
 
 env:
   REGISTRY: ghcr.io
@@ -68,6 +68,11 @@ jobs:
     name: Image
     needs: verify
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write        # push the image to GHCR
+      id-token: write        # OIDC token the attestation is signed against
+      attestations: write    # persist the attestation to the repo
     outputs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
@@ -129,6 +134,9 @@ jobs:
     name: Chart
     needs: image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write        # push the chart to GHCR as an OCI artifact
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -152,6 +160,8 @@ jobs:
     name: GitHub release
     needs: [image, chart]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write        # create the GitHub release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

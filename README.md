@@ -196,7 +196,7 @@ kubectl create secret generic truenas-exporter \
 
 helm install truenas-exporter \
   oci://ghcr.io/scottrus/charts/truenas-scale-exporter \
-  --version 0.1.0 \
+  --version 0.1.1 \
   --namespace monitoring \
   --set truenas.url=truenas.example.com \
   --set truenas.insecure=true \
@@ -243,7 +243,7 @@ chmod 600 /etc/truenas-exporter/api-key
 # /etc/truenas-exporter/compose.yaml
 services:
   truenas-exporter:
-    image: ghcr.io/scottrus/truenas-scale-exporter:0.1.0
+    image: ghcr.io/scottrus/truenas-scale-exporter:0.1.1
     container_name: truenas-exporter
     restart: unless-stopped
     environment:
