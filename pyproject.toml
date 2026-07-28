@@ -25,7 +25,7 @@ dependencies = [
   # 14.0 is the floor because the sync client's `ssl` keyword (which replaced
   # `ssl_context`) is what client.py passes. CI resolves the newest version, so
   # a wider range would claim support for something never exercised.
-  "websockets>=14.0,<16.0",
+  "websockets>=14.0,<17.0",
 ]
 
 [project.optional-dependencies]
