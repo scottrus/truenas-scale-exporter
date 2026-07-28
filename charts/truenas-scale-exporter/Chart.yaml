@@ -1,0 +1,25 @@
+apiVersion: v2
+name: truenas-scale-exporter
+description: Prometheus exporter for TrueNAS over the JSON-RPC 2.0 WebSocket API
+type: application
+
+# version    — the chart version, bumped for chart-only changes too.
+# appVersion — the exporter release this chart defaults to.
+# Release automation keeps these in lockstep on a tagged release.
+version: 0.1.0
+appVersion: "0.1.0"
+
+home: https://github.com/scottrus/truenas-scale-exporter
+sources:
+  - https://github.com/scottrus/truenas-scale-exporter
+keywords:
+  - prometheus
+  - exporter
+  - truenas
+  - zfs
+  - monitoring
+maintainers:
+  - name: scottrus
+    url: https://github.com/scottrus
+annotations:
+  artifacthub.io/license: Apache-2.0

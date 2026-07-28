@@ -1,0 +1,36 @@
+truenas-scale-exporter {{ .Chart.AppVersion }} is deployed as {{ include "truenas-scale-exporter.fullname" . }}.
+
+Target: {{ .Values.truenas.url }}
+{{- if .Values.truenas.insecure }}
+TLS verification: DISABLED (truenas.insecure=true)
+{{- end }}
+
+Check it is collecting:
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "truenas-scale-exporter.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl -s localhost:{{ .Values.service.port }}/metrics | grep '^truenas_up'
+
+`truenas_up 1` means every collector succeeded. If it reads 0, find the one
+that failed:
+
+  curl -s localhost:{{ .Values.service.port }}/metrics | grep truenas_collector_success
+
+{{- if not (or .Values.serviceMonitor.enabled .Values.vmServiceScrape.enabled) }}
+
+NOTE: neither serviceMonitor nor vmServiceScrape is enabled, so nothing is
+scraping this yet. Enable whichever matches your operator:
+
+  --set serviceMonitor.enabled=true      # Prometheus Operator
+  --set vmServiceScrape.enabled=true     # VictoriaMetrics Operator
+{{- end }}
+
+{{- if and .Values.truenas.apiKey (not .Values.truenas.existingSecret) }}
+
+SECURITY: the API key was passed via `truenas.apiKey`, so it is stored in clear
+text in this release's Helm secret. For anything long-lived, create a Secret
+yourself and use `truenas.existingSecret` instead.
+{{- end }}
+
+Alerting rules that catch a pool which has lost redundancy while still
+reporting ONLINE:
+https://github.com/scottrus/truenas-scale-exporter/blob/main/docs/alerts.md

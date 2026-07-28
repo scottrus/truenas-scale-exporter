@@ -1,0 +1,153 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write   # create the GitHub release
+  packages: write   # push image + chart to GHCR
+  id-token: write   # keyless signing / provenance attestation
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # The release tag must not be the first time the checks run, but re-running
+  # them here means a tag can never ship something that does not pass CI.
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    env:
+      REQUIRE_ALL: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: make lint
+      - run: make test
+
+  image:
+    name: Image
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check the tag matches the packaged version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/truenas_scale_exporter/__init__.py)"
+          chart="$(sed -n 's/^appVersion: "\(.*\)"/\1/p' charts/truenas-scale-exporter/Chart.yaml)"
+          echo "tag=$tag package=$pkg chart_appVersion=$chart"
+          # A tag that disagrees with the version baked into the artifact is the
+          # kind of mismatch nobody notices until they are debugging in anger.
+          [ "$tag" = "$pkg" ]   || { echo "tag != __version__"; exit 1; }
+          [ "$tag" = "$chart" ] || { echo "tag != chart appVersion"; exit 1; }
+
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  chart:
+    name: Chart
+    needs: image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.2.3
+
+      - name: Package and push to GHCR as an OCI artifact
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | helm registry login ${{ env.REGISTRY }} \
+                --username ${{ github.actor }} --password-stdin
+          helm package charts/truenas-scale-exporter --destination /tmp/chart
+          # Repository owner must be lowercase for an OCI reference.
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          helm push /tmp/chart/truenas-scale-exporter-*.tgz \
+            "oci://${{ env.REGISTRY }}/${owner}/charts"
+
+  release:
+    name: GitHub release
+    needs: [image, chart]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Create the release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          generate_release_notes: true
+          body: |
+            ## Container image
+
+            ```
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ```
+
+            Digest: `${{ needs.image.outputs.digest }}`
+
+            ## Helm chart
+
+            ```bash
+            helm install truenas-exporter \
+              oci://ghcr.io/${{ github.repository_owner }}/charts/truenas-scale-exporter \
+              --version ${{ github.ref_name }} \
+              --namespace monitoring \
+              --set truenas.url=truenas.example.com \
+              --set truenas.existingSecret=truenas-exporter
+            ```
+
+            > Give the exporter an API key from a **dedicated read-only account**.
+            > TrueNAS API keys inherit the privileges of the account that owns
+            > them — a key issued under root grants full control of the NAS.

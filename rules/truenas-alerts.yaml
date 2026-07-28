@@ -1,0 +1,177 @@
+# Alerting rules for truenas-scale-exporter.
+#
+# Valid as a Prometheus rule file, as the `spec.groups` of a PrometheusRule, and
+# as the `spec.groups` of a VictoriaMetrics VMRule.
+#
+# Unit tests live in tests/rules/. Run them with `make rules`.
+# Prose and reasoning for each rule are in docs/alerts.md.
+#
+# Thresholds are site-specific — scrub age, temperature ceilings and capacity
+# limits all deserve a look before you adopt these verbatim.
+
+groups:
+  - name: truenas-pool-health
+    rules:
+      - alert: TrueNASPoolUnhealthy
+        expr: truenas_pool_healthy == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ZFS pool {{ $labels.pool }} is unhealthy"
+          description: >-
+            Check `zpool status {{ $labels.pool }}`. The per-device error
+            counters identify which member is at fault.
+
+      - alert: TrueNASPoolSuspended
+        expr: truenas_pool_status_code{status_code="IO_FAILURE_CONTINUE"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ZFS pool {{ $labels.pool }} has SUSPENDED"
+          description: >-
+            All I/O to this pool is failing. Per-device status can still read
+            ONLINE in this state, so device status is not reassurance.
+
+      # A mirror that is down to one leg. The pool still reports ONLINE.
+      - alert: TrueNASMirrorDegraded
+        expr: truenas_pool_vdev_children{vdev_type="MIRROR"} < 2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Mirror {{ $labels.vdev }} in pool {{ $labels.pool }} has no redundancy"
+
+      # A data vdev with no redundancy at all — the shape a mirror takes after
+      # `zpool detach`. Exclude pools intentionally run as stripes.
+      - alert: TrueNASPoolHasNoRedundancy
+        expr: |
+          truenas_pool_vdev_status{category="data", vdev_type="DISK"} == 1
+          unless on (pool) truenas_pool_vdev_status{pool=~"scratch|tmp"}
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pool {{ $labels.pool }} has a data vdev with no redundancy"
+          description: >-
+            Vdev {{ $labels.vdev }} is a bare disk. A single failure loses the
+            pool, and scrubs can only detect corruption, not repair it.
+
+  - name: truenas-devices
+    rules:
+      - alert: TrueNASDeviceErrors
+        expr: |
+          increase(truenas_pool_device_read_errors_total[1h]) > 0
+          or increase(truenas_pool_device_write_errors_total[1h]) > 0
+          or increase(truenas_pool_device_checksum_errors_total[1h]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Device {{ $labels.device }} in {{ $labels.pool }} is logging ZFS errors"
+
+      - alert: TrueNASDeviceNotOnline
+        expr: truenas_pool_device_online == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Device {{ $labels.device }} in {{ $labels.pool }} is not ONLINE"
+
+      - alert: TrueNASDiskTemperatureImplausible
+        expr: truenas_disk_temperature_celsius == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk {{ $labels.disk }} ({{ $labels.serial }}) reports 0 °C"
+          description: >-
+            A zero reading usually means the drive stopped answering admin
+            commands, not that it is genuinely cold.
+
+      - alert: TrueNASDiskTemperatureHigh
+        expr: truenas_disk_temperature_celsius > 55
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk {{ $labels.disk }} at {{ $value }} °C"
+
+  - name: truenas-maintenance
+    rules:
+      # function="SCRUB" is load-bearing. ZFS reports only the most recent scan
+      # per pool, and a resilver is a scan — so aggregating across scan types
+      # lets a recent resilver mask a pool that has never been scrubbed.
+      - alert: TrueNASScrubTooOld
+        expr: |
+          time() - max by (pool) (
+            truenas_pool_scan_end_timestamp_seconds{function="SCRUB"}
+          ) > 40 * 24 * 3600
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pool {{ $labels.pool }} has not been scrubbed in over 40 days"
+
+      # A pool with no SCRUB record at all produces no series for the rule
+      # above to compare, so it would never fire. This catches that case.
+      - alert: TrueNASPoolNeverScrubbed
+        expr: |
+          truenas_pool_healthy
+          unless on (pool) truenas_pool_scan_end_timestamp_seconds{function="SCRUB"}
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pool {{ $labels.pool }} has no completed scrub on record"
+
+      - alert: TrueNASScrubErrors
+        expr: truenas_pool_scan_errors > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.function }} of {{ $labels.pool }} found {{ $value }} errors"
+
+      - alert: TrueNASPoolAutotrimDisabled
+        expr: truenas_pool_autotrim_enabled == 0
+        labels:
+          severity: info
+        annotations:
+          summary: "Pool {{ $labels.pool }} has autotrim disabled"
+          description: >-
+            Harmless on spinning disks — silence those pools. On an SSD or NVMe
+            pool, enable it with `zpool set autotrim=on {{ $labels.pool }}`.
+
+      - alert: TrueNASPoolNearlyFull
+        expr: truenas_pool_allocated_bytes / truenas_pool_size_bytes > 0.80
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pool {{ $labels.pool }} is {{ $value | humanizePercentage }} full"
+
+  - name: truenas-exporter
+    rules:
+      # SMART reaches Prometheus only through here: 25.10 polls SMART inside the
+      # middleware and exposes the result as alerts, not as attributes.
+      #
+      # dismissed="false" matters — TrueNAS keeps dismissed alerts in the list
+      # with their occurrence counter still updating.
+      - alert: TrueNASCriticalAlert
+        expr: truenas_alerts{level="CRITICAL", dismissed="false"} > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TrueNAS has {{ $value }} critical {{ $labels.klass }} alert(s)"
+
+      - alert: TrueNASCollectorFailing
+        expr: truenas_collector_success == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The {{ $labels.collector }} collector is failing"
+          description: >-
+            Other collectors may still be reporting, so metrics look healthy
+            while one part of the picture is missing.

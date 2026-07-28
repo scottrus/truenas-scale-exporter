@@ -1,0 +1,78 @@
+# --- Python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+sdist/
+wheels/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Test / coverage / type-check caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.cover
+
+# --- Helm ------------------------------------------------------------------
+# Vendored chart dependencies and the lock that pins them are build output;
+# `helm dependency update` regenerates both.
+charts/**/charts/
+charts/**/Chart.lock
+charts/**/tmpcharts/
+
+# Packaged charts produced by `helm package` — released to GHCR, not committed.
+*.tgz
+
+# Rendered output from `helm template` used while debugging
+rendered/
+
+# --- Docker ----------------------------------------------------------------
+# Compose overrides are per-machine by convention.
+docker-compose.override.yml
+docker-compose.override.yaml
+compose.override.yml
+compose.override.yaml
+.docker/
+
+# --- Secrets ---------------------------------------------------------------
+# Nothing resembling a TrueNAS API key should ever reach a commit. These
+# patterns are a backstop, not a substitute for keeping keys out of the tree.
+*.key
+*.pem
+api-key
+api-key.txt
+.env
+.env.*
+!.env.example
+secrets.yaml
+values-local.yaml
+values.secret.yaml
+
+# --- Editors / OS ----------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

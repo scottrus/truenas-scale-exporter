@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/scottrus/truenas-scale-exporter/security/advisories/new
+    about: Report privately, not as a public issue.
+  - name: TrueNAS API reference
+    url: https://api.truenas.com/
+    about: Method names and response shapes for the JSON-RPC API.

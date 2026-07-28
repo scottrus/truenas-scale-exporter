@@ -1,0 +1,31 @@
+{{- if .Values.vmServiceScrape.enabled }}
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: {{ include "truenas-scale-exporter.fullname" . }}
+  labels:
+    {{- include "truenas-scale-exporter.labels" . | nindent 4 }}
+    {{- with .Values.vmServiceScrape.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "truenas-scale-exporter.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.vmServiceScrape.interval }}
+      scrapeTimeout: {{ .Values.vmServiceScrape.scrapeTimeout }}
+      {{- with .Values.vmServiceScrape.relabelConfigs }}
+      relabelConfigs:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.vmServiceScrape.metricRelabelConfigs }}
+      metricRelabelConfigs:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

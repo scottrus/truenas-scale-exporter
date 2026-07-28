@@ -1,0 +1,38 @@
+name: Feature request
+description: Suggest a metric or capability
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What can you not see today?
+      description: >-
+        Describe the operational question you cannot answer with the current
+        metrics — that is usually a better guide than a proposed metric name.
+    validations:
+      required: true
+
+  - type: input
+    id: middleware-call
+    attributes:
+      label: Which middleware call would provide it?
+      description: >-
+        If you know it. Note that it must be a read-only call — see SECURITY.md.
+      placeholder: "e.g. replication.query"
+
+  - type: textarea
+    id: shape
+    attributes:
+      label: Sample response
+      description: >-
+        The JSON that call returns on your system, scrubbed. This is by far the
+        most useful thing you can attach.
+      render: json
+
+  - type: checkboxes
+    id: readonly
+    attributes:
+      label: Confirmation
+      options:
+        - label: This can be satisfied with read-only middleware calls
+          required: true

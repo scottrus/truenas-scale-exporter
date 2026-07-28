@@ -1,0 +1,150 @@
+# Behavioural tests for rules/truenas-alerts.yaml — `promtool test rules`.
+#
+# NOT part of `make check`, and not run in CI. promtool is only distributed
+# inside the ~99 MB Prometheus tarball, which is a poor trade to re-answer a
+# settled question on every pull request.
+#
+# Run these when you WRITE or CHANGE a non-trivial rule expression:
+#
+#     make rules
+#
+# Ongoing regression risk is covered for free by tests/test_rules.py, which
+# asserts the structure of these same rules inside the normal pytest job.
+#
+# Only the four rules whose expressions can plausibly be wrong are tested here
+# — those using set operations, aggregation, rate windows or time(). The other
+# eleven are threshold comparisons like `== 0`, which cannot fail in a way a
+# unit test would reveal.
+#
+# Timestamp arithmetic: promtool's clock starts at Unix 0, so `time()` equals
+# eval_time in seconds. A scrub "N days ago" is a NEGATIVE series value.
+#   40 days (the threshold) = 3_456_000
+#   45 days before eval 1h  = 3600 - 3_888_000 = -3_884_400
+#    5 days before eval 1h  = 3600 -   432_000 =   -428_400
+
+rule_files:
+  - ../../rules/truenas-alerts.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # ------------------------------------------------------------------------
+  # REGRESSION: a bug that only a real appliance exposed.
+  #
+  # `nvme` had a mirror leg replaced, resilvered, and had no SCRUB on record.
+  # ZFS reports exactly one scan per pool and a resilver IS a scan, so the
+  # original rule — `max by (pool)` across all scan types — read the pool as
+  # "scanned minutes ago" and stayed silent forever.
+  #
+  # Below: last scrubbed 45 days ago, resilvered an hour ago.
+  # The old rule does NOT fire on this input. The current one must.
+  # ------------------------------------------------------------------------
+  - interval: 1m
+    name: a recent resilver must not mask an overdue scrub
+    input_series:
+      - series: 'truenas_pool_scan_end_timestamp_seconds{pool="masked",function="SCRUB"}'
+        values: "-3884400+0x90"
+      - series: 'truenas_pool_scan_end_timestamp_seconds{pool="masked",function="RESILVER"}'
+        values: "0+0x90"
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: TrueNASScrubTooOld
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              pool: masked
+            exp_annotations:
+              summary: "Pool masked has not been scrubbed in over 40 days"
+
+  # The companion gap: no SCRUB series at all means no comparison to evaluate,
+  # so TrueNASScrubTooOld cannot fire. Only the set operation catches it.
+  - interval: 1m
+    name: a pool that has never been scrubbed is still reported
+    input_series:
+      - series: 'truenas_pool_healthy{pool="resilvered"}'
+        values: "1+0x150"
+      - series: 'truenas_pool_scan_end_timestamp_seconds{pool="resilvered",function="RESILVER"}'
+        values: "0+0x150"
+    alert_rule_test:
+      - eval_time: 1h10m
+        alertname: TrueNASScrubTooOld
+        exp_alerts: []
+      - eval_time: 1h10m
+        alertname: TrueNASPoolNeverScrubbed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              pool: resilvered
+            exp_annotations:
+              summary: "Pool resilvered has no completed scrub on record"
+
+  # Neither rule may fire on a healthy, recently scrubbed pool — an alert that
+  # cries wolf gets silenced, which is the same outcome as never firing.
+  - interval: 1m
+    name: a recently scrubbed pool is quiet
+    input_series:
+      - series: 'truenas_pool_healthy{pool="fine"}'
+        values: "1+0x150"
+      - series: 'truenas_pool_scan_end_timestamp_seconds{pool="fine",function="SCRUB"}'
+        values: "-428400+0x150"
+    alert_rule_test:
+      - eval_time: 1h10m
+        alertname: TrueNASScrubTooOld
+        exp_alerts: []
+      - eval_time: 1h10m
+        alertname: TrueNASPoolNeverScrubbed
+        exp_alerts: []
+
+  # ------------------------------------------------------------------------
+  # TrueNASPoolHasNoRedundancy uses `unless on (pool)` to exempt pools that are
+  # intentionally striped. Verify both halves: it fires on a bare data vdev,
+  # and stays quiet for an exempted pool name.
+  # ------------------------------------------------------------------------
+  - interval: 1m
+    name: a bare data vdev is reported, unless the pool is an intentional stripe
+    input_series:
+      - series: 'truenas_pool_vdev_status{pool="fast",vdev="nvme3n1p2",vdev_type="DISK",category="data",status="ONLINE"}'
+        values: "1+0x40"
+      - series: 'truenas_pool_vdev_status{pool="scratch",vdev="sdz1",vdev_type="DISK",category="data",status="ONLINE"}'
+        values: "1+0x40"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: TrueNASPoolHasNoRedundancy
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              pool: fast
+              vdev: nvme3n1p2
+              vdev_type: DISK
+              category: data
+              status: ONLINE
+            exp_annotations:
+              summary: "Pool fast has a data vdev with no redundancy"
+              description: >-
+                Vdev nvme3n1p2 is a bare disk. A single failure loses the pool, and scrubs can only detect corruption, not repair it.
+
+  # ------------------------------------------------------------------------
+  # TrueNASDeviceErrors uses increase() over counters that RESET on
+  # `zpool clear` and on import. A flat counter holding a historical value must
+  # NOT alert; only fresh errors should.
+  # ------------------------------------------------------------------------
+  - interval: 1m
+    name: only fresh device errors alert, not a stale non-zero counter
+    input_series:
+      # Held at 250 for the whole window — errors happened before this window.
+      - series: 'truenas_pool_device_read_errors_total{pool="old",vdev="mirror-0",device="nvme0n1"}'
+        values: "250+0x90"
+      # Climbing — errors are happening now.
+      - series: 'truenas_pool_device_read_errors_total{pool="live",vdev="mirror-0",device="nvme1n1"}'
+        values: "0+1x90"
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: TrueNASDeviceErrors
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              pool: live
+              vdev: mirror-0
+              device: nvme1n1
+            exp_annotations:
+              summary: "Device nvme1n1 in live is logging ZFS errors"

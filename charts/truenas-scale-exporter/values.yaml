@@ -1,0 +1,121 @@
+# -- TrueNAS connection settings.
+truenas:
+  # -- Host or URL of the TrueNAS appliance, e.g. `truenas.example.com`.
+  url: ""
+
+  # -- API key, in plain text. Convenient for a quick trial, but it lands in
+  # the Helm release secret as well as the Secret this chart creates.
+  # Prefer `existingSecret`.
+  #
+  # SECURITY: TrueNAS API keys inherit the privileges of the account that owns
+  # them. Create a dedicated user with a read-only role. Never use a key issued
+  # under root or any full-admin account — this exporter only ever reads.
+  apiKey: ""
+
+  # -- Name of an existing Secret holding the API key. Takes precedence over
+  # `apiKey`.
+  existingSecret: ""
+  # -- Key within `existingSecret` that holds the API key.
+  existingSecretKey: api-key
+
+  # -- Skip TLS verification. TrueNAS ships a self-signed certificate, so this
+  # is commonly `true` unless you have installed a trusted certificate.
+  insecure: false
+
+  # -- Per-call timeout, in seconds.
+  timeout: 15
+
+# -- Log level: DEBUG, INFO, WARNING, ERROR.
+logLevel: INFO
+
+image:
+  repository: ghcr.io/scottrus/truenas-scale-exporter
+  # -- Overrides the image tag; defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# -- One replica is correct. This is a polling exporter against a single
+# appliance; a second replica doubles middleware load and duplicates series.
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 9819
+  annotations: {}
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+  # -- The exporter talks only to TrueNAS; it never calls the Kubernetes API.
+  automountServiceAccountToken: false
+
+# -- Renders a Prometheus Operator ServiceMonitor.
+serviceMonitor:
+  enabled: false
+  interval: 60s
+  scrapeTimeout: 30s
+  labels: {}
+  relabelings: []
+  metricRelabelings: []
+
+# -- Renders a VictoriaMetrics Operator VMServiceScrape.
+vmServiceScrape:
+  enabled: false
+  interval: 60s
+  scrapeTimeout: 30s
+  labels: {}
+  relabelConfigs: []
+  metricRelabelConfigs: []
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 192Mi
+
+# -- Satisfies the Pod Security `restricted` profile as shipped.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 30
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 15
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""
+extraEnv: []
+extraArgs: []
