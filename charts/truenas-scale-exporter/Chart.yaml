@@ -6,8 +6,8 @@ type: application
 # version    — the chart version, bumped for chart-only changes too.
 # appVersion — the exporter release this chart defaults to.
 # Release automation keeps these in lockstep on a tagged release.
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.1.1
+appVersion: "0.1.1"
 
 home: https://github.com/scottrus/truenas-scale-exporter
 sources:
