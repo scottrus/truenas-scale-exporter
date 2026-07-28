@@ -104,7 +104,14 @@ jobs:
         run: make docker
 
       - name: Install grype
+        id: grype
         uses: anchore/scan-action/download-grype@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+
+      # The action only returns an absolute path in its `cmd` output; it does
+      # not put grype on PATH. `make scan` invokes grype by name so that the
+      # same target works locally, so the directory has to be added here.
+      - name: Put grype on PATH
+        run: dirname "${{ steps.grype.outputs.cmd }}" >> "$GITHUB_PATH"
 
       - name: Scan the image
         run: make scan
