@@ -9,6 +9,7 @@ import signal
 import sys
 import threading
 from pathlib import Path
+from typing import TypeVar
 from wsgiref.simple_server import WSGIRequestHandler, make_server
 
 from prometheus_client import CollectorRegistry, make_wsgi_app
@@ -20,6 +21,8 @@ from .collector import TrueNASCollector
 
 log = logging.getLogger("truenas_scale_exporter")
 
+T = TypeVar("T", int, float)
+
 DEFAULT_PORT = 9819
 
 
@@ -30,6 +33,42 @@ class _QuietHandler(WSGIRequestHandler):
     # shadows a builtin, but renaming it would be an incompatible override.
     def log_message(self, format, *args):  # pylint: disable=redefined-builtin
         pass
+
+
+def _numeric_env(name: str, default: T, cast) -> T:
+    """Read a numeric environment variable, tolerating a non-numeric value.
+
+    This exists because of a specific Kubernetes footgun. The kubelet injects a
+    legacy Docker-link variable for every Service in the pod's namespace, named
+    after the Service with dashes uppercased to underscores:
+
+        Service "truenas-exporter"  ->  TRUENAS_EXPORTER_PORT=tcp://10.0.0.1:9819
+
+    That collides exactly with this exporter's own port setting, so naming the
+    release `truenas-exporter` — the obvious name — made the container die at
+    startup with a ValueError about a URL. The chart now sets
+    `enableServiceLinks: false`, but an operator on an older chart, a raw
+    manifest, or plain Docker Compose can still hit it.
+
+    Falling back to the default with a loud warning beats crash-looping on a
+    value the operator never set.
+    """
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return cast(raw)
+    except (TypeError, ValueError):
+        log.warning(
+            "Ignoring %s=%r — not a number; using %r instead. In Kubernetes "
+            "this is usually the service-link variable the kubelet injects "
+            "for a Service of the same name; set enableServiceLinks: false "
+            "on the pod spec.",
+            name,
+            raw,
+            default,
+        )
+        return default
 
 
 def _read_api_key(args: argparse.Namespace) -> str:
@@ -113,7 +152,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--port",
         type=int,
-        default=int(os.environ.get("TRUENAS_EXPORTER_PORT", DEFAULT_PORT)),
+        default=_numeric_env("TRUENAS_EXPORTER_PORT", DEFAULT_PORT, int),
         help=f"Port to bind, default {DEFAULT_PORT} (env: TRUENAS_EXPORTER_PORT)",
     )
     parser.add_argument(
@@ -126,7 +165,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--timeout",
         type=float,
-        default=float(os.environ.get("TRUENAS_TIMEOUT", "15")),
+        default=_numeric_env("TRUENAS_TIMEOUT", 15.0, float),
         help="Per-call timeout in seconds (env: TRUENAS_TIMEOUT)",
     )
     parser.add_argument(

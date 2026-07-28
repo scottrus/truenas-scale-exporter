@@ -170,6 +170,13 @@ that lost a leg and is now a bare `DISK` vdev: it reports `ONLINE` with
 redundancy at all. That is the case pool-status monitoring misses, and it is
 worth having in front of you when writing alert rules or building dashboards.
 
+> **Kubernetes note.** The kubelet injects a legacy Docker-link variable for every
+> Service in the namespace, so a Service named `truenas-exporter` sets
+> `TRUENAS_EXPORTER_PORT=tcp://<clusterIP>:9819` — colliding with this exporter's own
+> port setting. The chart sets `enableServiceLinks: false` to prevent it, and since
+> 0.1.2 the binary ignores a non-numeric value rather than crashing. If you deploy from
+> a raw manifest, set `enableServiceLinks: false` on the pod spec.
+
 ### Verify before you deploy
 
 ```bash
@@ -196,7 +203,7 @@ kubectl create secret generic truenas-exporter \
 
 helm install truenas-exporter \
   oci://ghcr.io/scottrus/charts/truenas-scale-exporter \
-  --version 0.1.1 \
+  --version 0.1.2 \
   --namespace monitoring \
   --set truenas.url=truenas.example.com \
   --set truenas.insecure=true \
@@ -243,7 +250,7 @@ chmod 600 /etc/truenas-exporter/api-key
 # /etc/truenas-exporter/compose.yaml
 services:
   truenas-exporter:
-    image: ghcr.io/scottrus/truenas-scale-exporter:0.1.1
+    image: ghcr.io/scottrus/truenas-scale-exporter:0.1.2
     container_name: truenas-exporter
     restart: unless-stopped
     environment:
