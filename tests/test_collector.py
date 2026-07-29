@@ -130,15 +130,95 @@ def suspended_stripe_pool():
     }
 
 
+def single_device_boot_pool():
+    """What boot.get_state returns on a default TrueNAS install.
+
+    Same entry shape as a pool.query row, which is why it can be mapped onto
+    the truenas_pool_* families instead of getting families of its own.
+    """
+    return {
+        "name": "boot-pool",
+        "status": "ONLINE",
+        "status_code": "OK",
+        "healthy": True,
+        "warning": False,
+        "size": 30601641984,
+        "allocated": 13335220224,
+        "free": 17266421760,
+        "fragmentation": "38",
+        "autotrim": {"value": "on"},
+        "scan": {
+            "function": "SCRUB",
+            "state": "FINISHED",
+            "end_time": {"$date": 1785284129000},
+            "errors": 0,
+            "percentage": 99.97,
+        },
+        "topology": {
+            "data": [
+                {
+                    "name": "sdz3",
+                    "type": "DISK",
+                    "status": "ONLINE",
+                    "disk": "sdz",
+                    "device": "sdz3",
+                    "children": [],
+                    "stats": {
+                        "read_errors": 0,
+                        "write_errors": 0,
+                        "checksum_errors": 0,
+                    },
+                }
+            ],
+            "log": [],
+            "cache": [],
+            "spare": [],
+            "special": [],
+            "dedup": [],
+        },
+    }
+
+
+def mirrored_boot_pool():
+    """Two boot devices — a supported and common TrueNAS configuration.
+
+    Worth its own fixture because it is the case that must NOT look like lost
+    redundancy: same call, same families, but a MIRROR vdev with two children.
+    """
+    boot = single_device_boot_pool()
+    boot["topology"]["data"] = [
+        {
+            "name": "mirror-0",
+            "type": "MIRROR",
+            "status": "ONLINE",
+            "children": [
+                {
+                    "disk": disk,
+                    "device": f"{disk}3",
+                    "status": "ONLINE",
+                    "stats": {
+                        "read_errors": 0,
+                        "write_errors": 0,
+                        "checksum_errors": 0,
+                    },
+                }
+                for disk in ("sdy", "sdz")
+            ],
+        }
+    ]
+    return boot
+
+
 def build_registry(responses) -> CollectorRegistry:
     registry = CollectorRegistry()
     registry.register(TrueNASCollector(FakeClient(responses)))
     return registry
 
 
-def default_responses(pools):
+def default_responses(pools, boot=None):
     return {
         "pool.query": pools,
+        "boot.get_state": single_device_boot_pool() if boot is None else boot,
         "disk.query": [
             {
                 "name": "nvme0n1",
@@ -401,6 +481,125 @@ def test_one_failing_collector_does_not_suppress_the_others():
     # Pool data is still present, and truenas_up correctly reports degraded.
     assert sample_value(registry, "truenas_pool_healthy", {"pool": "fast"}) == 1
     assert registry.get_sample_value("truenas_up") == 0
+
+
+def test_boot_pool_is_reported_through_the_ordinary_pool_families():
+    """pool.query returns data pools only, so boot-pool needs a second call.
+
+    It has to land on the same families as every other pool: that is what lets
+    existing rules and dashboards cover it without being changed.
+    """
+    registry = build_registry(default_responses([healthy_mirror_pool()]))
+
+    assert sample_value(registry, "truenas_pool_healthy", {"pool": "boot-pool"}) == 1
+    assert (
+        sample_value(
+            registry, "truenas_pool_status", {"pool": "boot-pool", "status": "ONLINE"}
+        )
+        == 1
+    )
+    assert (
+        sample_value(registry, "truenas_pool_size_bytes", {"pool": "boot-pool"})
+        == 30601641984
+    )
+    # fragmentation arrives as the string "38" here, as it does for data pools.
+    assert sample_value(
+        registry, "truenas_pool_fragmentation_ratio", {"pool": "boot-pool"}
+    ) == pytest.approx(0.38)
+    assert (
+        sample_value(
+            registry,
+            "truenas_pool_scan_end_timestamp_seconds",
+            {"pool": "boot-pool", "function": "SCRUB"},
+        )
+        == 1785284129.0
+    )
+    assert (
+        sample_value(registry, "truenas_collector_success", {"collector": "boot"}) == 1
+    )
+
+
+def test_single_device_boot_pool_emits_the_lost_redundancy_shape():
+    """The reason this is worth collecting at all.
+
+    A one-device boot pool reads ONLINE and healthy while a checksum error on
+    it is permanent rather than repairable. These are the exact series the
+    no-redundancy rule matches on, so it covers boot-pool with no rule change.
+    """
+    registry = build_registry(default_responses([healthy_mirror_pool()]))
+    labels = {
+        "pool": "boot-pool",
+        "vdev": "sdz3",
+        "vdev_type": "DISK",
+        "category": "data",
+    }
+
+    assert (
+        sample_value(
+            registry, "truenas_pool_vdev_status", labels | {"status": "ONLINE"}
+        )
+        == 1
+    )
+    assert sample_value(registry, "truenas_pool_vdev_children", labels) == 1
+
+
+def test_mirrored_boot_pool_does_not_look_like_lost_redundancy():
+    """Two boot devices is supported and common; it must not trip the rule."""
+    registry = build_registry(
+        default_responses([healthy_mirror_pool()], boot=mirrored_boot_pool())
+    )
+
+    assert (
+        sample_value(
+            registry,
+            "truenas_pool_vdev_children",
+            {
+                "pool": "boot-pool",
+                "vdev": "mirror-0",
+                "vdev_type": "MIRROR",
+                "category": "data",
+            },
+        )
+        == 2
+    )
+    # The bare-DISK series the no-redundancy rule keys on must be absent.
+    assert (
+        registry.get_sample_value(
+            "truenas_pool_vdev_status",
+            {
+                "pool": "boot-pool",
+                "vdev": "sdz3",
+                "vdev_type": "DISK",
+                "category": "data",
+                "status": "ONLINE",
+            },
+        )
+        is None
+    )
+
+
+def test_a_missing_boot_api_does_not_cost_the_data_pools():
+    """boot.get_state is the newest surface here and the least important pool.
+
+    An appliance without it — or one where TrueNAS removes it, as 25.10 did to
+    the whole SMART API — must still report every data pool, and must not drag
+    truenas_up down with it.
+    """
+    responses = default_responses([healthy_mirror_pool()])
+    responses["boot.get_state"] = TrueNASError("Method does not exist")
+    registry = build_registry(responses)
+
+    assert (
+        sample_value(registry, "truenas_collector_success", {"collector": "boot"}) == 0
+    )
+    assert (
+        sample_value(registry, "truenas_collector_success", {"collector": "pools"}) == 1
+    )
+    assert sample_value(registry, "truenas_pool_healthy", {"pool": "fast"}) == 1
+    assert (
+        registry.get_sample_value("truenas_pool_healthy", {"pool": "boot-pool"}) is None
+    )
+    assert registry.get_sample_value("truenas_up") == 1
 
 
 def test_exposition_renders():
