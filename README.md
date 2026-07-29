@@ -37,12 +37,13 @@ network service. Do not hand it that.
 Create a **dedicated user with the narrowest read-only role your TrueNAS version offers**
 (a read-only admin role is sufficient), and issue the API key under that account.
 
-The exporter only ever issues these five read calls, and never writes anything:
+The exporter only ever issues these six read calls, and never writes anything:
 
 | Call | Used for |
 |---|---|
 | `auth.login_with_api_key` | authenticate the connection |
 | `pool.query` | pool state, capacity, topology, scrub/resilver, device error counters |
+| `boot.get_state` | the same, for `boot-pool`, which `pool.query` does not return |
 | `disk.query` | disk model / serial / type, used only as metric labels |
 | `disk.temperatures` | per-disk temperature |
 | `alert.list` | TrueNAS's own alerts, including SMART |
@@ -134,6 +135,18 @@ So this exporter deliberately exports the things that *do* move:
 `truenas_pool_status` emits **every** known ZFS state per pool, with the live one set to `1`
 and the rest to `0`, so that `truenas_pool_status{status="ONLINE"} == 0` is a safe alerting
 expression — a missing series and a healthy pool never look alike.
+
+**`boot-pool` appears as an ordinary pool.** `pool.query` returns data pools only, so the
+boot pool is collected separately through `boot.get_state` and emitted on the same
+`truenas_pool_*` families — there is no `truenas_boot_pool_*`. Every rule and dashboard
+panel keyed on `pool` therefore covers it for free. On a default single-device install that
+means the no-redundancy rule fires against `boot-pool`, which is correct: the pool reads
+`ONLINE` and healthy while a checksum error on it is permanent rather than repairable. If
+that is a trade you have made deliberately, exclude the pool in your own rule or silence it
+rather than dropping the metric.
+
+The `device` label carries the **whole disk** (`sdz`), not the partition ZFS holds (`sdz3`),
+so it joins with `truenas_disk_*`. `zpool status` shows the partition.
 
 ---
 
@@ -315,6 +328,11 @@ Tests use canned middleware responses — no TrueNAS needed.
 | 26.04 | Expected to work; this is the release that removes REST |
 | 24.10 and older | Unsupported — no versioned JSON-RPC endpoint |
 | TrueNAS CORE | Unsupported |
+
+An appliance that does not offer `boot.get_state` degrades rather than failing: `boot-pool`
+is simply absent, `truenas_collector_success{collector="boot"}` reads `0`, and every other
+collector reports normally. `truenas_up` deliberately ignores that collector, so a missing
+boot API never masks otherwise healthy data pools.
 
 ## License
 

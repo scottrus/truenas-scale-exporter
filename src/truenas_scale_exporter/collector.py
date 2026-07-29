@@ -11,6 +11,11 @@ Design notes worth knowing before changing anything here:
   inside the middleware — it is polled every 90 minutes and surfaced only as
   alerts. There is no queryable attribute API to export, so SMART reaches you
   here through ``truenas_alerts`` instead.
+* **boot-pool comes from a second call.** ``pool.query`` returns data pools
+  only, so the boot pool needs ``boot.get_state``. It is emitted through the
+  same ``truenas_pool_*`` families rather than a family of its own, so every
+  existing rule and dashboard covers it without being changed — including the
+  no-redundancy rule, which a single-device boot pool trips by design.
 * Counters use ``CounterMetricFamily`` even though ZFS resets them on
   ``zpool clear`` and on import; Prometheus-compatible backends handle that
   reset correctly, whereas a gauge would hide it.
@@ -96,8 +101,15 @@ class TrueNASCollector:
         up = 1
         successes: dict[str, int] = {}
 
+        # Fetched here, not inside _collect_pools, so that a failure is isolated
+        # to boot-pool. It is the least important pool on the appliance and sits
+        # on the newest API surface — 25.10 removed the entire SMART API in a
+        # point release — so losing it must never cost visibility of the data
+        # pools that hold everything.
+        boot, successes["boot"] = self._boot_pool()
+
         collectors = (
-            ("pools", self._collect_pools),
+            ("pools", lambda: self._collect_pools(boot)),
             ("disks", self._collect_disks),
             ("alerts", self._collect_alerts),
             ("system", self._collect_system),
@@ -127,8 +139,10 @@ class TrueNASCollector:
 
         yield GaugeMetricFamily(
             "truenas_up",
-            "Whether the exporter could reach the TrueNAS middleware and all "
-            "collectors succeeded.",
+            "Whether the exporter could reach the TrueNAS middleware and every "
+            'collector except "boot" succeeded. boot-pool is optional surface, '
+            "so losing it must not mask otherwise healthy data pools — watch "
+            'truenas_collector_success{collector="boot"} for that.',
             value=up,
         )
         yield GaugeMetricFamily(
@@ -139,8 +153,31 @@ class TrueNASCollector:
 
     # -- pools ---------------------------------------------------------------
 
-    def _collect_pools(self) -> Iterable[Any]:
-        pools = self._client.call("pool.query")
+    def _boot_pool(self) -> tuple[dict[str, Any] | None, int]:
+        """Fetch boot-pool state, or ``(None, 0)`` if the call fails.
+
+        Failure is expected on any appliance whose middleware does not offer
+        ``boot.get_state``, so it is reported rather than raised — the data
+        pools are worth more than the boot pool, and must still be collected.
+        """
+        try:
+            return self._client.call("boot.get_state"), 1
+        except TrueNASError as exc:
+            log.warning("boot.get_state failed, boot-pool not reported: %s", exc)
+            return None, 0
+        except Exception:  # pragma: no cover - defensive
+            log.exception("boot.get_state raised unexpectedly")
+            return None, 0
+
+    def _collect_pools(self, boot: dict[str, Any] | None = None) -> Iterable[Any]:
+        pools = list(self._client.call("pool.query"))
+
+        # boot.get_state returns the same entry shape as a pool.query row, so it
+        # flows through everything below unchanged. Mapping it onto the existing
+        # families rather than a truenas_boot_pool_* set of its own is the whole
+        # point: rules and dashboards pick it up for free.
+        if boot is not None:
+            pools.append(boot)
 
         status = GaugeMetricFamily(
             "truenas_pool_status",
@@ -374,6 +411,11 @@ class TrueNASCollector:
 
                 leaves = [vdev] if is_leaf else children
                 for leaf in leaves:
+                    # `disk` is the whole disk ("sds"), `device` the partition
+                    # ZFS actually holds ("sds3"). Prefer `disk`, because that
+                    # is what truenas_disk_* is keyed on and the two only join
+                    # if they agree. The cost is that this label reads "sds"
+                    # where `zpool status` says "sds3".
                     device = (
                         leaf.get("disk")
                         or leaf.get("device")

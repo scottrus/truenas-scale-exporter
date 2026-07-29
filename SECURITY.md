@@ -31,6 +31,7 @@ Every middleware call it makes, in full:
 |---|---|
 | `auth.login_with_api_key` | authenticate the connection |
 | `pool.query` | pool state, capacity, topology, scrub/resilver, device errors |
+| `boot.get_state` | the same, for `boot-pool` — `pool.query` returns data pools only |
 | `disk.query` | disk model / serial / type, used only as metric labels |
 | `disk.temperatures` | per-disk temperature |
 | `alert.list` | TrueNAS alerts, including SMART |
@@ -38,9 +39,18 @@ Every middleware call it makes, in full:
 
 All are reads. The exporter has no code path that writes.
 
-If a future version needs a call not on this list, that is a **major version
-bump** and will be called out explicitly in the changelog. Treat any build
-asking for privileges beyond this as suspect, and check the diff.
+This list is the exporter's privilege surface, and changes to it are announced
+rather than slipped in:
+
+- **A new read call** is a **minor** bump, called out under its own heading in
+  the changelog, with this table updated in the same change. `boot.get_state`
+  in 0.2.0 is the worked example.
+- **Any call that writes** would be a **major** bump, and is not something this
+  project intends to do — the exporter has no write code path today, and adding
+  one changes what an API key here can cost you.
+
+Treat any build asking for privileges beyond this table as suspect, and check
+the diff.
 
 ## Handling the key
 
