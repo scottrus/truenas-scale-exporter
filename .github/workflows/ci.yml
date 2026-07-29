@@ -100,12 +100,34 @@ jobs:
             https://github.com/hadolint/hadolint/releases/download/v2.14.0/hadolint-linux-x86_64
           sudo chmod +x /usr/local/bin/hadolint
 
-      - name: Lint the Dockerfile, build the image, smoke test it
-        run: make docker
+      - name: Lint the Dockerfile
+        run: make docker-lint
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      # Built here rather than via `make docker-build` so the layer cache can be
+      # shared across the three builds of the same content: the PR run, the run
+      # on main after merge, and the release. `load: true` puts the result in
+      # the local daemon so the smoke test below is the same one run locally.
+      - name: Build the image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          load: true
+          tags: truenas-scale-exporter:dev
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test it
+        run: make docker-smoke
 
       - name: Install grype
         id: grype
         uses: anchore/scan-action/download-grype@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        with:
+          # The vulnerability DB is a ~100 MB download on every run, and was
+          # measured at 53s of an 87s job — twice the build it guards.
+          cache-db: "true"
 
       # The action only returns an absolute path in its `cmd` output; it does
       # not put grype on PATH. `make scan` invokes grype by name so that the
