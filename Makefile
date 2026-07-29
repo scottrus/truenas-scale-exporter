@@ -252,7 +252,7 @@ helm-schema:
 # ---------------------------------------------------------------- docker ----
 
 .PHONY: docker
-docker: docker-lint docker-build
+docker: docker-lint docker-build docker-smoke
 
 .PHONY: docker-lint
 docker-lint:
@@ -267,9 +267,18 @@ docker-build:
 	@if ! command -v docker >/dev/null 2>&1; then $(call missing,docker,docker build); else \
 		set -e; \
 		echo "==> docker build"; \
-		docker build -t $(IMAGE) .; \
+		docker build $(DOCKER_BUILD_ARGS) -t $(IMAGE) .; \
+	fi
+
+# Assertions only — no build. CI builds with a registry cache the local path
+# has no use for, then runs this identical target against the result.
+.PHONY: docker-smoke
+docker-smoke:
+	@if ! command -v docker >/dev/null 2>&1; then $(call missing,docker,image smoke test); else \
+		set -e; \
 		echo "==> image smoke test"; \
-		docker image inspect $(IMAGE) >/dev/null; \
+		docker image inspect $(IMAGE) >/dev/null \
+			|| { echo "FAIL: $(IMAGE) not built — run 'make docker-build' first"; exit 1; }; \
 		docker run --rm $(IMAGE) --version | grep -q "$(VERSION)"; \
 		echo "    reports version $(VERSION)"; \
 		docker run --rm --entrypoint python $(IMAGE) -c \
