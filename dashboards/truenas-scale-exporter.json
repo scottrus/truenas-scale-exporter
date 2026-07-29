@@ -1,12 +1,19 @@
 {
-  "title": "TrueNAS — pools, devices and disks",
+  "title": "TrueNAS \u2014 pools, devices and disks",
   "uid": "truenas-scale-exporter",
-  "tags": ["truenas", "zfs", "storage"],
+  "tags": [
+    "truenas",
+    "zfs",
+    "storage"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
   "version": 1,
   "refresh": "1m",
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "editable": true,
   "graphTooltip": 1,
   "templating": {
@@ -23,12 +30,18 @@
         "name": "pool",
         "label": "Pool",
         "type": "query",
-        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
         "query": "label_values(truenas_pool_healthy, pool)",
         "refresh": 2,
         "includeAll": true,
         "multi": true,
-        "current": { "text": "All", "value": "$__all" }
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
       }
     ]
   },
@@ -36,25 +49,44 @@
     {
       "type": "row",
       "title": "Health",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "collapsed": false
     },
     {
       "type": "stat",
       "title": "Pool health",
-      "description": "TrueNAS's own health verdict. Note that a pool which has lost redundancy still reports healthy until something actually fails — see the redundancy panel below.",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
+      "description": "TrueNAS's own health verdict. Note that a pool which has lost redundancy still reports healthy until something actually fails \u2014 see the redundancy panel below.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
       "targets": [
         {
-          "expr": "truenas_pool_healthy{pool=~\"$pool\"}",
+          "expr": "max by (pool) (truenas_pool_healthy{pool=~\"$pool\"})",
           "legendFormat": "{{pool}}",
           "instant": true,
           "refId": "A"
         }
       ],
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "colorMode": "background",
         "textMode": "value_and_name",
         "graphMode": "none"
@@ -62,10 +94,31 @@
       "fieldConfig": {
         "defaults": {
           "mappings": [
-            { "type": "value", "options": { "0": { "text": "UNHEALTHY", "color": "red", "index": 0 } } },
-            { "type": "value", "options": { "1": { "text": "HEALTHY", "color": "green", "index": 1 } } }
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "UNHEALTHY",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "HEALTHY",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
           ],
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       }
@@ -73,31 +126,60 @@
     {
       "type": "stat",
       "title": "Suspended pools",
-      "description": "IO_FAILURE_CONTINUE — the pool has stopped serving I/O. Per-device status can still read ONLINE in this state.",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 1 },
+      "description": "IO_FAILURE_CONTINUE \u2014 the pool has stopped serving I/O. Per-device status can still read ONLINE in this state.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
       "targets": [
         {
-          "expr": "sum(truenas_pool_status_code{status_code=\"IO_FAILURE_CONTINUE\", pool=~\"$pool\"})",
+          "expr": "sum(truenas_pool_status_code{status_code=\"IO_FAILURE_CONTINUE\", pool=~\"$pool\"}) or vector(0)",
           "instant": true,
           "refId": "A"
         }
       ],
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "colorMode": "background",
         "graphMode": "none"
       },
       "fieldConfig": {
         "defaults": {
           "mappings": [
-            { "type": "value", "options": { "0": { "text": "none", "color": "green", "index": 0 } } }
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "none",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            }
           ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
             ]
           }
         },
@@ -108,11 +190,19 @@
       "type": "table",
       "title": "Redundancy by vdev",
       "description": "A MIRROR showing 1 device has lost all redundancy while the pool still reports ONLINE. A data vdev of type DISK has no redundancy at all.",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 1 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
       "targets": [
         {
-          "expr": "truenas_pool_vdev_children{category=\"data\", pool=~\"$pool\"}",
+          "expr": "max by (pool, vdev, vdev_type) (truenas_pool_vdev_children{category=\"data\", pool=~\"$pool\"})",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -122,28 +212,49 @@
         {
           "id": "organize",
           "options": {
-            "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true, "category": true },
-            "renameByName": { "Value": "devices", "vdev_type": "type" }
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "devices",
+              "vdev_type": "type"
+            }
           }
         }
       ],
       "fieldConfig": {
-        "defaults": { "custom": { "align": "auto" } },
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "devices" },
+            "matcher": {
+              "id": "byName",
+              "options": "devices"
+            },
             "properties": [
               {
                 "id": "custom.cellOptions",
-                "value": { "type": "color-background", "mode": "basic" }
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
               },
               {
                 "id": "thresholds",
                 "value": {
                   "mode": "absolute",
                   "steps": [
-                    { "color": "red", "value": null },
-                    { "color": "green", "value": 2 }
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 2
+                    }
                   ]
                 }
               }
@@ -155,41 +266,67 @@
     {
       "type": "row",
       "title": "Devices",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
       "collapsed": false
     },
     {
       "type": "timeseries",
-      "title": "ZFS device errors (rate over 1h)",
+      "title": "ZFS device errors (increase over 1h)",
       "description": "These move well before a pool changes state, and they move in cases where SMART stays completely clean.",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 7 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 7
+      },
       "targets": [
         {
-          "expr": "increase(truenas_pool_device_read_errors_total{pool=~\"$pool\"}[1h])",
-          "legendFormat": "read — {{pool}}/{{device}}",
+          "expr": "sum by (pool, device) (increase(truenas_pool_device_read_errors_total{pool=~\"$pool\"}[1h])) > 0",
+          "legendFormat": "read \u2014 {{pool}}/{{device}}",
           "refId": "A"
         },
         {
-          "expr": "increase(truenas_pool_device_write_errors_total{pool=~\"$pool\"}[1h])",
-          "legendFormat": "write — {{pool}}/{{device}}",
+          "expr": "sum by (pool, device) (increase(truenas_pool_device_write_errors_total{pool=~\"$pool\"}[1h])) > 0",
+          "legendFormat": "write \u2014 {{pool}}/{{device}}",
           "refId": "B"
         },
         {
-          "expr": "increase(truenas_pool_device_checksum_errors_total{pool=~\"$pool\"}[1h])",
-          "legendFormat": "checksum — {{pool}}/{{device}}",
+          "expr": "sum by (pool, device) (increase(truenas_pool_device_checksum_errors_total{pool=~\"$pool\"}[1h])) > 0",
+          "legendFormat": "checksum \u2014 {{pool}}/{{device}}",
           "refId": "C"
         }
       ],
       "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["max"], "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "min": 0,
-          "custom": { "lineWidth": 2, "fillOpacity": 8, "showPoints": "auto", "pointSize": 8 }
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 8
+          },
+          "noValue": "No ZFS errors in the last hour"
         },
         "overrides": []
       }
@@ -198,11 +335,19 @@
       "type": "table",
       "title": "Devices not ONLINE",
       "description": "Empty is good.",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 7
+      },
       "targets": [
         {
-          "expr": "truenas_pool_device_online{pool=~\"$pool\"} == 0",
+          "expr": "max by (pool, vdev, device) (truenas_pool_device_online{pool=~\"$pool\"}) == 0",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -212,46 +357,92 @@
         {
           "id": "organize",
           "options": {
-            "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true },
-            "renameByName": { "Value": "online" }
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "online"
+            }
           }
         }
       ],
-      "fieldConfig": { "defaults": {}, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "All devices ONLINE"
+        },
+        "overrides": []
+      }
     },
     {
       "type": "row",
       "title": "Disks",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
       "collapsed": false
     },
     {
       "type": "timeseries",
       "title": "Disk temperature",
-      "description": "A reading that flatlines or drops to 0 °C usually means the drive stopped answering admin commands, not that it got cold.",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 16 },
+      "description": "Aggregated by disk so a pod replacement does not leave a duplicate series. A reading that flatlines or drops to 0 \u00b0C usually means the drive stopped answering admin commands, not that it got cold.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 16,
+        "x": 0,
+        "y": 16
+      },
       "targets": [
         {
-          "expr": "truenas_disk_temperature_celsius",
-          "legendFormat": "{{disk}} — {{model}}",
+          "expr": "max by (disk, model, serial, type) (truenas_disk_temperature_celsius)",
+          "legendFormat": "{{disk}} \u2014 {{model}}",
           "refId": "A"
         }
       ],
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "calcs": ["last", "max"], "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "celsius",
-          "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 50 },
-              { "color": "red", "value": 60 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 60
+              }
             ]
           }
         },
@@ -262,11 +453,19 @@
       "type": "table",
       "title": "Active TrueNAS alerts",
       "description": "SMART reaches Prometheus through here: 25.10 polls SMART inside the middleware every 90 minutes and exposes it only as alerts.",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 16 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 16
+      },
       "targets": [
         {
-          "expr": "truenas_alerts{dismissed=\"false\"} > 0",
+          "expr": "max by (klass, level) (truenas_alerts{dismissed=\"false\"}) > 0",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -276,34 +475,61 @@
         {
           "id": "organize",
           "options": {
-            "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true, "dismissed": true },
-            "renameByName": { "Value": "count", "klass": "class" }
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "count",
+              "klass": "class"
+            }
           }
         }
       ],
-      "fieldConfig": { "defaults": {}, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No active alerts"
+        },
+        "overrides": []
+      }
     },
     {
       "type": "row",
       "title": "Capacity and maintenance",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
       "collapsed": false
     },
     {
       "type": "bargauge",
       "title": "Pool usage",
       "description": "ZFS performance degrades sharply past roughly 80%.",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 26 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 26
+      },
       "targets": [
         {
-          "expr": "truenas_pool_allocated_bytes{pool=~\"$pool\"} / truenas_pool_size_bytes{pool=~\"$pool\"}",
+          "expr": "max by (pool) (truenas_pool_allocated_bytes{pool=~\"$pool\"}) / max by (pool) (truenas_pool_size_bytes{pool=~\"$pool\"})",
           "legendFormat": "{{pool}}",
           "instant": true,
           "refId": "A"
         }
       ],
-      "options": { "orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
@@ -312,9 +538,18 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 0.8 },
-              { "color": "red", "value": 0.9 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
             ]
           }
         },
@@ -323,19 +558,33 @@
     },
     {
       "type": "stat",
-      "title": "Time since last scrub or resilver",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 26 },
+      "title": "Time since last scrub",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 26
+      },
       "targets": [
         {
-          "expr": "time() - max by (pool) (truenas_pool_scan_end_timestamp_seconds{pool=~\"$pool\"})",
+          "expr": "time() - max by (pool) (truenas_pool_scan_end_timestamp_seconds{function=\"SCRUB\", pool=~\"$pool\"})",
           "legendFormat": "{{pool}}",
           "instant": true,
           "refId": "A"
         }
       ],
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "colorMode": "value",
         "textMode": "value_and_name",
         "graphMode": "none"
@@ -346,31 +595,56 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 3456000 },
-              { "color": "red", "value": 5184000 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 3456000
+              },
+              {
+                "color": "red",
+                "value": 5184000
+              }
             ]
-          }
+          },
+          "noValue": "never scrubbed"
         },
         "overrides": []
-      }
+      },
+      "description": "SCRUB only. A resilver is also a scan, and an unfiltered max() reports a pool that has only ever resilvered as freshly verified."
     },
     {
       "type": "stat",
       "title": "Exporter",
       "description": "truenas_up is 1 only when every collector succeeded.",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 26 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 26
+      },
       "targets": [
         {
-          "expr": "truenas_collector_success",
+          "expr": "max by (collector) (truenas_collector_success)",
           "legendFormat": "{{collector}}",
           "instant": true,
           "refId": "A"
         }
       ],
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "colorMode": "background",
         "textMode": "value_and_name",
         "graphMode": "none"
@@ -378,10 +652,31 @@
       "fieldConfig": {
         "defaults": {
           "mappings": [
-            { "type": "value", "options": { "0": { "text": "FAILING", "color": "red", "index": 0 } } },
-            { "type": "value", "options": { "1": { "text": "OK", "color": "green", "index": 1 } } }
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "FAILING",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "OK",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
           ],
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       }
