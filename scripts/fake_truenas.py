@@ -185,6 +185,58 @@ def pools():
     ]
 
 
+def boot_state():
+    """What boot.get_state returns — the same entry shape as a pool.query row.
+
+    Single-device, because that is what a default TrueNAS install produces and
+    it is the case worth exercising: the pool reads ONLINE and healthy while
+    having no redundancy at all, so a checksum error there is permanent rather
+    than repairable. A mirrored boot pool flows through the identical path.
+    """
+    return {
+        "name": "boot-pool",
+        "status": "ONLINE",
+        "status_code": "OK",
+        "healthy": True,
+        "warning": False,
+        "size": 30601641984,
+        "allocated": 13335220224,
+        "free": 17266421760,
+        "fragmentation": "38",
+        "autotrim": {"value": "on"},
+        "scan": {
+            "function": "SCRUB",
+            "state": "FINISHED",
+            "start_time": {"$date": NOW_MS - DAY_MS},
+            "end_time": {"$date": NOW_MS - DAY_MS + 65_000},
+            "errors": 0,
+            "percentage": 99.97,
+        },
+        "topology": {
+            "data": [
+                {
+                    "name": "sdz3",
+                    "type": "DISK",
+                    "status": "ONLINE",
+                    "disk": "sdz",
+                    "device": "sdz3",
+                    "children": [],
+                    "stats": {
+                        "read_errors": 0,
+                        "write_errors": 0,
+                        "checksum_errors": 0,
+                    },
+                }
+            ],
+            "log": [],
+            "cache": [],
+            "spare": [],
+            "special": [],
+            "dedup": [],
+        },
+    }
+
+
 def disks():
     inventory = [
         ("nvme3n1", "EXAMPLE NVME 2TB", "NVME000001", "SSD"),
@@ -230,6 +282,7 @@ def alerts():
 HANDLERS = {
     "auth.login_with_api_key": lambda: True,
     "pool.query": pools,
+    "boot.get_state": boot_state,
     "disk.query": disks,
     "disk.temperatures": temperatures,
     "alert.list": alerts,
