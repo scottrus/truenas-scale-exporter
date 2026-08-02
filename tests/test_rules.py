@@ -11,6 +11,7 @@ and enforce the conventions that make a rule file usable by someone else.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -84,6 +85,55 @@ def test_a_pool_with_no_scrub_record_is_still_covered():
     expr = rule_named("TrueNASPoolNeverScrubbed")["expr"]
     assert "unless" in expr
     assert 'function="SCRUB"' in expr
+
+
+def test_never_scrubbed_is_suppressed_while_a_scrub_is_running():
+    """A scrub in progress is indistinguishable from one that never happened.
+
+    ZFS holds scan.end_time null for the whole duration of a scan, so the
+    exporter emits no SCRUB end-time series and the `unless` above matches a
+    pool that is being scrubbed correctly, right now. A 145 TiB pool takes ~10
+    hours, so that is a false alarm once per scrub, getting louder as the pool
+    grows. Raising `for` is not the fix: it would have to exceed the longest
+    scrub the pool will ever take, and would delay the real condition equally.
+    """
+    expr = rule_named("TrueNASPoolNeverScrubbed")["expr"]
+    assert 'state="SCANNING"' in expr, (
+        "TrueNASPoolNeverScrubbed must exempt pools with a scan in flight; "
+        "without it the rule fires on every long scrub"
+    )
+    assert expr.count("unless") == 2, (
+        "both the missing-series case and the scan-in-flight case are needed"
+    )
+    # The suppressor is scoped to SCRUB for the same reason the rule is: during
+    # a RESILVER the single scan slot holds RESILVER, so no suppressor exists
+    # and the rule still fires — which is the case it was written for.
+    suppressor = re.search(r"truenas_pool_scan_state\{([^}]*)\}", expr)
+    assert suppressor and 'function="SCRUB"' in suppressor.group(1), (
+        "an unscoped suppressor would also silence the post-resilver case"
+    )
+
+
+def test_scrub_age_survives_the_gap_a_running_scrub_leaves():
+    """The hole that the suppressor above would otherwise open.
+
+    A scrub that starts and never finishes holds SCANNING indefinitely, which
+    silences TrueNASPoolNeverScrubbed forever. If TrueNASScrubTooOld also has
+    no series to evaluate during that window, the pool goes completely dark at
+    the moment it most deserves attention. last_over_time carries the last
+    completed timestamp across the gap so the age keeps climbing.
+    """
+    expr = rule_named("TrueNASScrubTooOld")["expr"]
+    assert "last_over_time" in expr, (
+        "a bare selector goes blind for the whole duration of every scrub"
+    )
+
+    window = int(re.search(r"\[(\d+)d\]", expr).group(1))
+    threshold = int(re.search(r">\s*(\d+)\s*\*\s*24\s*\*\s*3600", expr).group(1))
+    assert window > threshold, (
+        f"the {window}d lookback must exceed the {threshold}d threshold, or "
+        "the carried timestamp expires before the rule can ever reach it"
+    )
 
 
 def test_dismissed_truenas_alerts_are_excluded():
