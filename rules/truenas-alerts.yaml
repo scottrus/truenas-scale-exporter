@@ -149,6 +149,12 @@ groups:
       # function="SCRUB" on the suppressor is load-bearing in its own right.
       # During a RESILVER the single scan slot holds RESILVER, so no suppressor
       # exists and the rule still fires — which is the case it was written for.
+      #
+      # So is the `== 1`, and dropping it fails SILENTLY. The collector emits
+      # SCANNING, FINISHED and CANCELED for every pool on every scrape, so the
+      # SCANNING series is present with value 0 on a pool that is not scanning.
+      # Without the comparison the `unless` matches every pool and the rule can
+      # never fire again — measured on a live appliance, 0 pools of 4 survived.
       - alert: TrueNASPoolNeverScrubbed
         expr: |
           truenas_pool_healthy

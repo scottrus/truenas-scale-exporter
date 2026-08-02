@@ -113,6 +113,18 @@ def test_never_scrubbed_is_suppressed_while_a_scrub_is_running():
         "an unscoped suppressor would also silence the post-resilver case"
     )
 
+    # The `== 1` is load-bearing, and dropping it fails SILENTLY. The collector
+    # emits SCANNING, FINISHED and CANCELED for every pool on every scrape, so
+    # the SCANNING series exists with value 0 on a pool that is not scanning.
+    # An unfiltered `unless` therefore matches every pool and the rule can
+    # never fire again. Measured against a live appliance: without `== 1` the
+    # expression returned 0 pools out of 4; with it, 3 of 4.
+    assert re.search(r'state="SCANNING"\}\s*==\s*1', expr), (
+        "the SCANNING suppressor must compare == 1; the series is present "
+        "with value 0 on idle pools, so an unfiltered `unless` silently "
+        "silences the rule for every pool, permanently"
+    )
+
 
 def test_scrub_age_survives_the_gap_a_running_scrub_leaves():
     """The hole that the suppressor above would otherwise open.
