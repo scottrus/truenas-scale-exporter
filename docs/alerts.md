@@ -167,23 +167,38 @@ the whole pool. Aggregating across scan types lets a resilver mask a pool that
 has never been scrubbed, which is precisely the pool you most want scrubbed:
 one that just had a disk replaced.
 
+**A running scrub deletes the evidence that it ever ran.** ZFS holds
+`scan.end_time` null for the entire duration of a scan, so this exporter — which
+only emits the gauge when `end_time` is set — stops publishing
+`truenas_pool_scan_end_timestamp_seconds` for that pool until the scrub
+finishes. Two consequences, and both need handling:
+
+- A naive "no SCRUB series" test reads a pool being scrubbed *correctly, right
+  now* as one that has never been scrubbed. A 145 TiB pool takes around ten
+  hours, so that is a false alarm on every scrub, growing with the pool.
+- A naive age comparison has no series to evaluate for those same hours, so the
+  pool is unmonitored precisely while its scan is in flight.
+
 ```yaml
 - alert: TrueNASScrubTooOld
   expr: |
     time() - max by (pool) (
-      truenas_pool_scan_end_timestamp_seconds{function="SCRUB"}
-    ) > 40 * 24 * 3600
+      last_over_time(truenas_pool_scan_end_timestamp_seconds{function="SCRUB"}[60d])
+    ) > 51 * 24 * 3600
   labels:
     severity: warning
   annotations:
-    summary: "Pool {{ $labels.pool }} has not been scrubbed in over 40 days"
+    summary: "Pool {{ $labels.pool }} has not been scrubbed in over 51 days"
 
 # A pool with no SCRUB record at all never matches the rule above — there is no
-# series for the comparison to evaluate. This catches that case.
+# series for the comparison to evaluate. This catches that case. The second
+# `unless` exempts a pool whose scrub is running right now, which is otherwise
+# indistinguishable from one that has never been scrubbed.
 - alert: TrueNASPoolNeverScrubbed
   expr: |
     truenas_pool_healthy
     unless on (pool) truenas_pool_scan_end_timestamp_seconds{function="SCRUB"}
+    unless on (pool) (truenas_pool_scan_state{function="SCRUB",state="SCANNING"} == 1)
   for: 1h
   labels:
     severity: warning
@@ -198,8 +213,31 @@ one that just had a disk replaced.
     summary: "{{ $labels.function }} of {{ $labels.pool }} found {{ $value }} errors"
 ```
 
-TrueNAS's default scrub interval is 35 days, so 40 gives one cycle of slack
-before the alert fires on a schedule that is merely late rather than broken.
+**Scope the suppressor to `function="SCRUB"`.** During a resilver the single
+scan slot holds `RESILVER`, so no suppressor exists and
+`TrueNASPoolNeverScrubbed` still fires — which is the case it was written for.
+An unscoped suppressor would silence exactly that.
+
+**`last_over_time` is what stops the suppressor creating a blind spot.** A scrub
+that starts and never finishes — hung, or paused past its window — holds
+`SCANNING` indefinitely, silencing `TrueNASPoolNeverScrubbed` for good. Carrying
+the last completed timestamp across the gap keeps the age climbing, so the pool
+still trips the age rule instead of going dark. The lookback window has to
+exceed the threshold or the carried value expires before the rule can reach it.
+
+**Why 51 days and not 40.** TrueNAS's default task is weekly with a 35-day
+threshold. 35 is a multiple of 7, so in steady state the scrub stays anchored to
+its weekday and repeats at exactly 35 days — but anything that moves the anchor
+off that day, such as a manual scrub, makes the task wait up to 6 more days for
+its scheduled day to come round. **35 + 6 = 41 days is the worst case for a
+schedule that is working perfectly**, so a 40-day threshold fires on a healthy
+appliance. The remaining ten days are headroom for a scrub that slows as the
+pool fills.
+
+Note the scrub's own duration does *not* add on top, which is the intuitive
+mistake here: this measures the interval between consecutive scrub *ends*, which
+equals the interval between consecutive *starts* — both shift by the same
+duration, so it cancels.
 
 ## 8. An SSD pool is not being trimmed
 

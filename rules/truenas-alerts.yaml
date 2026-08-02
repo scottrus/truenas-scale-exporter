@@ -103,22 +103,68 @@ groups:
       # function="SCRUB" is load-bearing. ZFS reports only the most recent scan
       # per pool, and a resilver is a scan — so aggregating across scan types
       # lets a recent resilver mask a pool that has never been scrubbed.
+      #
+      # last_over_time is load-bearing for a different reason. The exporter
+      # emits this gauge only when scan.end_time is non-null, and ZFS nulls
+      # end_time for the whole time a scan is running. So the series VANISHES
+      # for the duration of every scrub, and a bare selector goes blind on the
+      # pool exactly while it is being scanned. On a large pool that is hours;
+      # on a scrub that hangs it is forever. Carrying the last completed
+      # timestamp across the gap keeps the age climbing, so a scrub that starts
+      # and never finishes still trips this rule. The window must exceed the
+      # threshold — 60d against 51d leaves margin.
+      #
+      # 51 days, not 40. TrueNAS's default task is weekly with a 35-day
+      # threshold, and 35 is a multiple of 7, so in steady state the scrub
+      # stays anchored to its weekday and repeats at exactly 35 days. But
+      # anything that moves the anchor off that weekday — a manual scrub, a
+      # missed window — makes the task wait up to 6 more days for its scheduled
+      # day to come round. 35 + 6 = 41 days is the real worst case for a
+      # schedule that is working correctly, so 40 fires on a healthy appliance.
+      # The remaining 10 days are headroom for a scrub that slows as the pool
+      # fills. Note the scrub's own duration does NOT add on top: this measures
+      # end-to-end between consecutive scrubs, and both ends shift by the same
+      # duration, so it cancels.
+      #
+      # ANYONE WHO HAS MOVED THEIR SCRUB TASK OFF THE WEEKLY/35-DAY DEFAULT
+      # SHOULD RE-DERIVE AS threshold_days + 6 + headroom RATHER THAN TAKING 51
+      # AS GIVEN. The 6 is "days until the task's scheduled day comes round"
+      # and shrinks to 0 for a daily task; the headroom is yours to size.
       - alert: TrueNASScrubTooOld
         expr: |
           time() - max by (pool) (
-            truenas_pool_scan_end_timestamp_seconds{function="SCRUB"}
-          ) > 40 * 24 * 3600
+            last_over_time(truenas_pool_scan_end_timestamp_seconds{function="SCRUB"}[60d])
+          ) > 51 * 24 * 3600
         labels:
           severity: warning
         annotations:
-          summary: "Pool {{ $labels.pool }} has not been scrubbed in over 40 days"
+          summary: "Pool {{ $labels.pool }} has not been scrubbed in over 51 days"
 
       # A pool with no SCRUB record at all produces no series for the rule
       # above to compare, so it would never fire. This catches that case.
+      #
+      # The second `unless` is what stops this firing on every long scrub. For
+      # the reason above, a running scrub removes the pool's SCRUB end-time
+      # series, which reads identically to "never scrubbed" — so without this
+      # the rule fires once per scrub on any pool whose scrub outlasts `for`,
+      # and the bigger the pool the louder it gets. Raising `for` is the wrong
+      # lever: it would have to exceed the longest scrub the pool will ever
+      # take, and it would delay the real condition by the same amount.
+      #
+      # function="SCRUB" on the suppressor is load-bearing in its own right.
+      # During a RESILVER the single scan slot holds RESILVER, so no suppressor
+      # exists and the rule still fires — which is the case it was written for.
+      #
+      # So is the `== 1`, and dropping it fails SILENTLY. The collector emits
+      # SCANNING, FINISHED and CANCELED for every pool on every scrape, so the
+      # SCANNING series is present with value 0 on a pool that is not scanning.
+      # Without the comparison the `unless` matches every pool and the rule can
+      # never fire again — measured on a live appliance, 0 pools of 4 survived.
       - alert: TrueNASPoolNeverScrubbed
         expr: |
           truenas_pool_healthy
           unless on (pool) truenas_pool_scan_end_timestamp_seconds{function="SCRUB"}
+          unless on (pool) (truenas_pool_scan_state{function="SCRUB",state="SCANNING"} == 1)
         for: 1h
         labels:
           severity: warning

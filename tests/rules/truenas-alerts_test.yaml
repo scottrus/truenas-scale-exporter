@@ -18,9 +18,24 @@
 #
 # Timestamp arithmetic: promtool's clock starts at Unix 0, so `time()` equals
 # eval_time in seconds. A scrub "N days ago" is a NEGATIVE series value.
-#   40 days (the threshold) = 3_456_000
-#   45 days before eval 1h  = 3600 - 3_888_000 = -3_884_400
+#   51 days (the threshold) = 4_406_400
+#   55 days before eval 1h  = 3600 - 4_752_000 = -4_748_400
 #    5 days before eval 1h  = 3600 -   432_000 =   -428_400
+#   55 days before eval 2h  = 7200 - 4_752_000 = -4_744_800
+#   50 days before eval 2h  = 7200 - 4_320_000 = -4_312_800
+#
+# A pool mid-scrub is modelled the way the appliance actually presents it: the
+# SCRUB end-time series STOPS (ZFS nulls end_time while a scan runs, so the
+# exporter emits nothing) and scan_state SCANNING flips to 1. `_x<n>` is the
+# gap. That shape is the whole point of the last two cases below.
+#
+# Those two cases evaluate at 2h, NOT at the 1h10m the older cases use, and the
+# difference is load-bearing rather than cosmetic. TrueNASPoolNeverScrubbed
+# carries `for: 1h`, and the simulated scrub starts 10 minutes in, so the
+# earliest it could possibly fire is ~1h15m. An assertion at 1h10m therefore
+# passes whether or not the suppressor works — it is measuring the `for` clock,
+# not the rule. Verified by removing the suppressor and watching the case still
+# go green. 2h clears the `for` window with room to spare.
 
 rule_files:
   - ../../rules/truenas-alerts.yaml
@@ -36,14 +51,14 @@ tests:
   # original rule — `max by (pool)` across all scan types — read the pool as
   # "scanned minutes ago" and stayed silent forever.
   #
-  # Below: last scrubbed 45 days ago, resilvered an hour ago.
+  # Below: last scrubbed 55 days ago, resilvered an hour ago.
   # The old rule does NOT fire on this input. The current one must.
   # ------------------------------------------------------------------------
   - interval: 1m
     name: a recent resilver must not mask an overdue scrub
     input_series:
       - series: 'truenas_pool_scan_end_timestamp_seconds{pool="masked",function="SCRUB"}'
-        values: "-3884400+0x90"
+        values: "-4748400+0x90"
       - series: 'truenas_pool_scan_end_timestamp_seconds{pool="masked",function="RESILVER"}'
         values: "0+0x90"
     alert_rule_test:
@@ -54,7 +69,7 @@ tests:
               severity: warning
               pool: masked
             exp_annotations:
-              summary: "Pool masked has not been scrubbed in over 40 days"
+              summary: "Pool masked has not been scrubbed in over 51 days"
 
   # The companion gap: no SCRUB series at all means no comparison to evaluate,
   # so TrueNASScrubTooOld cannot fire. Only the set operation catches it.
@@ -94,6 +109,70 @@ tests:
       - eval_time: 1h10m
         alertname: TrueNASPoolNeverScrubbed
         exp_alerts: []
+
+  # ------------------------------------------------------------------------
+  # REGRESSION: a false alarm a large pool exposed in production.
+  #
+  # A 145 TiB pool takes ~10 hours to scrub. For all ten of those hours ZFS
+  # holds end_time null, the exporter emits no SCRUB end-time series, and
+  # TrueNASPoolNeverScrubbed read that as "no completed scrub on record" — so
+  # the alert fired once per scrub, on a pool being scrubbed exactly on
+  # schedule. Every scrub is louder than the last as the pool grows.
+  #
+  # Below: scrubbed 50 days ago (inside the threshold), then a new scrub starts
+  # 10 minutes in. Neither rule may fire — this pool is completely healthy.
+  # ------------------------------------------------------------------------
+  - interval: 1m
+    name: a scrub in progress does not read as never scrubbed
+    input_series:
+      - series: 'truenas_pool_healthy{pool="scrubbing"}'
+        values: "1+0x150"
+      - series: 'truenas_pool_scan_end_timestamp_seconds{pool="scrubbing",function="SCRUB"}'
+        values: "-4312800+0x9 _x140"
+      - series: 'truenas_pool_scan_state{pool="scrubbing",function="SCRUB",state="SCANNING"}'
+        values: "0+0x9 1+0x140"
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: TrueNASPoolNeverScrubbed
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: TrueNASScrubTooOld
+        exp_alerts: []
+
+  # The hole that the suppressor above would open on its own, and the reason
+  # TrueNASScrubTooOld uses last_over_time.
+  #
+  # A scrub that starts and never finishes — hung, or paused past its window —
+  # holds SCANNING forever. The suppressor then silences TrueNASPoolNeverScrubbed
+  # forever too, and with a bare selector TrueNASScrubTooOld has no series to
+  # evaluate, so the pool goes completely dark at the exact moment it deserves
+  # attention. Carrying the last completed end-time across the gap is what
+  # keeps the age climbing to the threshold anyway.
+  #
+  # Below: identical shape, but the last completed scrub was 55 days ago.
+  # NeverScrubbed stays suppressed; ScrubTooOld must still fire.
+  # ------------------------------------------------------------------------
+  - interval: 1m
+    name: a hung scrub still trips the age rule instead of going dark
+    input_series:
+      - series: 'truenas_pool_healthy{pool="hung"}'
+        values: "1+0x150"
+      - series: 'truenas_pool_scan_end_timestamp_seconds{pool="hung",function="SCRUB"}'
+        values: "-4744800+0x9 _x140"
+      - series: 'truenas_pool_scan_state{pool="hung",function="SCRUB",state="SCANNING"}'
+        values: "0+0x9 1+0x140"
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: TrueNASPoolNeverScrubbed
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: TrueNASScrubTooOld
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              pool: hung
+            exp_annotations:
+              summary: "Pool hung has not been scrubbed in over 51 days"
 
   # ------------------------------------------------------------------------
   # TrueNASPoolHasNoRedundancy uses `unless on (pool)` to exempt pools that are

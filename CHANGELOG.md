@@ -10,6 +10,43 @@ dashboards and alerting rules downstream.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`TrueNASPoolNeverScrubbed` no longer fires on every long scrub.** ZFS holds
+  `scan.end_time` null for the whole duration of a scan, so the exporter stops
+  emitting `truenas_pool_scan_end_timestamp_seconds` while a scrub is running —
+  which the rule read as "no completed scrub on record". A 145 TiB pool takes
+  around ten hours to scrub, so this was a guaranteed false alarm once per
+  scrub, on a pool being scrubbed exactly on schedule, getting louder as the
+  pool grows. The rule now exempts pools with a SCRUB scan in flight.
+
+  The exemption is scoped to `function="SCRUB"` deliberately: during a resilver
+  the single scan slot holds `RESILVER`, so the rule still fires afterwards,
+  which is the case it was written for.
+
+- **`TrueNASScrubTooOld` no longer goes blind while a scrub runs**, and its
+  threshold moves from 40 days to **51**. Two independent bugs:
+
+  - It used a bare selector, so for the same reason as above it had no series
+    to evaluate for the duration of every scrub. Combined with the exemption
+    added above, a scrub that starts and never finishes would have silenced
+    both rules indefinitely. It now reads through `last_over_time(...[60d])`,
+    which carries the last completed timestamp across the gap so the age keeps
+    climbing and a hung scrub still trips the rule.
+  - 40 days fires on a healthy appliance. TrueNAS's default task is weekly with
+    a 35-day threshold; 35 is a multiple of 7, so the scrub normally stays
+    anchored to one weekday and repeats at exactly 35 days — but anything that
+    moves that anchor, such as a manual scrub, makes the task wait up to 6 more
+    days for its day to come round. 41 days is the true worst case for a
+    schedule that is working correctly. 51 adds ten days of headroom for a
+    scrub that slows as the pool fills.
+
+  If you have adjusted your scrub task away from the weekly/35-day default,
+  re-derive the threshold as `threshold_days + 6 + headroom` rather than taking
+  51 as given.
+
+  No metric was added, renamed or removed.
+
 ## [0.2.0] - 2026-07-29
 
 ### Added
