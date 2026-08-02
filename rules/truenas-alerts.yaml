@@ -125,6 +125,11 @@ groups:
       # fills. Note the scrub's own duration does NOT add on top: this measures
       # end-to-end between consecutive scrubs, and both ends shift by the same
       # duration, so it cancels.
+      #
+      # ANYONE WHO HAS MOVED THEIR SCRUB TASK OFF THE WEEKLY/35-DAY DEFAULT
+      # SHOULD RE-DERIVE AS threshold_days + 6 + headroom RATHER THAN TAKING 51
+      # AS GIVEN. The 6 is "days until the task's scheduled day comes round"
+      # and shrinks to 0 for a daily task; the headroom is yours to size.
       - alert: TrueNASScrubTooOld
         expr: |
           time() - max by (pool) (
