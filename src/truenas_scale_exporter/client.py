@@ -31,6 +31,24 @@ class TrueNASError(RuntimeError):
     """A middleware call failed, or the connection could not be established."""
 
 
+class SessionLostError(TrueNASError):
+    """The socket is still open but the middleware no longer treats it as logged in."""
+
+
+def _is_session_lost(err: dict[str, Any]) -> bool:
+    # The middleware ends long-lived API-key sessions (observed at 30 days) while
+    # leaving the socket open, so every later call fails with an error rather than
+    # a closed connection. These are the two errors main.py raises for that state.
+    # A plain "Not authorized" is EACCES too, but it is a permission problem that
+    # reconnecting cannot fix, so it is deliberately not matched.
+    data = err.get("data")
+    if not isinstance(data, dict):
+        return False
+    return data.get("errname") == "ENOTAUTHENTICATED" or (
+        data.get("errname") == "EACCES" and data.get("reason") == "Session is expired"
+    )
+
+
 def build_ws_url(url: str, api_path: str = DEFAULT_API_PATH) -> str:
     """Normalise a user-supplied host or URL into a websocket URL.
 
@@ -149,15 +167,17 @@ class TrueNASClient:
 
             if "error" in message:
                 err = message["error"]
-                raise TrueNASError(f"{method} failed: {err.get('message', err)}")
+                exc_type = SessionLostError if _is_session_lost(err) else TrueNASError
+                raise exc_type(f"{method} failed: {err.get('message', err)}")
             return message.get("result")
 
     def call(self, method: str, params: list[Any] | None = None) -> Any:
         """Call a middleware method, reconnecting once if the socket is stale.
 
         A long-lived connection can be closed by a middleware restart or a
-        TrueNAS upgrade. Retrying once turns that into a single failed scrape
-        instead of a permanently dead exporter.
+        TrueNAS upgrade, or left open with its session ended by the middleware.
+        Retrying once turns either into a single failed call instead of a
+        permanently dead exporter.
         """
         params = params or []
         with self._lock:
@@ -166,7 +186,12 @@ class TrueNASClient:
                     self._connect()
                 try:
                     return self._raw_call(method, params)
-                except (WebSocketException, OSError, json.JSONDecodeError) as exc:
+                except (
+                    WebSocketException,
+                    OSError,
+                    json.JSONDecodeError,
+                    SessionLostError,
+                ) as exc:
                     self.close()
                     if attempt == 2:
                         raise TrueNASError(

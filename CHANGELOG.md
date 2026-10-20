@@ -10,7 +10,19 @@ dashboards and alerting rules downstream.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-20
+
 ### Fixed
+
+- **The exporter recovers when the middleware ends its session.** TrueNAS can
+  end a long-lived API-key session while it keeps the websocket open — observed
+  on 25.10.6 at 30 days uptime. The transport never fails, so the existing
+  reconnect-on-drop never ran: every call returned `Method call error`, every
+  collector reported 0, and only a pod restart brought it back. An
+  `ENOTAUTHENTICATED` or `Session is expired` error now gets the same treatment
+  as a dropped socket — reconnect, log in again, retry once. `Not authorized`
+  is deliberately not retried, because a new login cannot fix a permission
+  problem and would only repeat on every scrape.
 
 - **`TrueNASPoolNeverScrubbed` no longer fires on every long scrub.** ZFS holds
   `scan.end_time` null for the whole duration of a scan, so the exporter stops
@@ -169,7 +181,8 @@ Initial release.
 - API key accepted from a file, so it need not enter the environment or the
   process table.
 
-[Unreleased]: https://github.com/scottrus/truenas-scale-exporter/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/scottrus/truenas-scale-exporter/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/scottrus/truenas-scale-exporter/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/scottrus/truenas-scale-exporter/releases/tag/v0.2.0
 [0.1.2]: https://github.com/scottrus/truenas-scale-exporter/releases/tag/v0.1.2
 [0.1.1]: https://github.com/scottrus/truenas-scale-exporter/releases/tag/v0.1.1
