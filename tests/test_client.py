@@ -36,6 +36,7 @@ class FakeMiddleware:
         self.received: list[str] = []
         self.connections = 0
         self.drop_next_connection = False
+        self.session_expired = False
         self._server = None
         self._thread = None
 
@@ -91,7 +92,24 @@ class FakeMiddleware:
 
     def _response(self, request, method):
         if method == "auth.login_with_api_key":
+            self.session_expired = False
             return {"jsonrpc": "2.0", "id": request["id"], "result": self.auth_result}
+
+        # The shape main.py and rpc.py send once the session has ended but the
+        # socket is still open: the state the exporter hit at 30 days uptime.
+        if self.session_expired:
+            return {
+                "jsonrpc": "2.0",
+                "id": request["id"],
+                "error": {
+                    "code": -32001,
+                    "message": "Method call error",
+                    "data": {
+                        "errname": "ENOTAUTHENTICATED",
+                        "reason": "Not authenticated",
+                    },
+                },
+            }
 
         value = self.responses.get(method, [])
         if isinstance(value, dict) and "error" in value:
@@ -186,6 +204,44 @@ def test_a_dropped_connection_is_retried_once_and_succeeds():
         # Reconnected, and re-authenticated on the new connection.
         assert server.connections == 2
         assert server.received.count("auth.login_with_api_key") == 2
+
+
+def test_an_expired_session_on_an_open_socket_is_reconnected_once():
+    """The middleware can end the session but leave the socket open, so the
+    transport never fails and only the error payload says the login is gone."""
+    with FakeMiddleware(responses={"pool.query": [{"name": "tank"}]}) as server:
+        client = client_for(server)
+        try:
+            client.call("pool.query")  # establishes the connection
+            server.session_expired = True
+            assert client.call("pool.query") == [{"name": "tank"}]
+        finally:
+            client.close()
+
+        # A new connection, not a second login on the old one.
+        assert server.connections == 2
+        assert server.received.count("auth.login_with_api_key") == 2
+
+
+def test_not_authorized_is_not_retried():
+    """EACCES "Not authorized" is a permission problem. Reconnecting every call
+    would not fix it and would log in again on every scrape."""
+    error = {
+        "error": {
+            "code": -32001,
+            "message": "Method call error",
+            "data": {"error": 13, "errname": "EACCES", "reason": "Not authorized"},
+        }
+    }
+    with FakeMiddleware(responses={"pool.query": error}) as server:
+        client = client_for(server)
+        try:
+            with pytest.raises(TrueNASError):
+                client.call("pool.query")
+        finally:
+            client.close()
+
+        assert server.connections == 1
 
 
 def test_calls_fail_cleanly_when_the_server_is_unreachable():
