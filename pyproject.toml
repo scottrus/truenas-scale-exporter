@@ -68,6 +68,10 @@ testpaths = ["tests"]
 # are not blocked by rounding — it exists to catch a real regression, not to
 # chase a number. main()'s serve_forever loop is the bulk of what is uncovered.
 addopts = "--cov=truenas_scale_exporter --cov-report=term-missing --cov-fail-under=80"
+# A deprecation that our own calls trigger fails the tests, so it is fixed while
+# the old form still works. Libraries attribute these warnings to the caller
+# (stacklevel), so the filter matches our package, not the library.
+filterwarnings = ["error::DeprecationWarning:truenas_scale_exporter"]
 
 [tool.pylint.main]
 py-version = "3.11"
