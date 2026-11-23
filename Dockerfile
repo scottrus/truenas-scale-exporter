@@ -9,7 +9,7 @@
 
 # --- build ------------------------------------------------------------------
 # The -dev variant carries pip and a shell; the runtime variant carries neither.
-FROM cgr.dev/chainguard/python:latest-dev@sha256:6611f09b165b0ac0ff31c2ae2ac6fc7960483dfc568a7ee4f1bc4a59777287a8 AS build
+FROM cgr.dev/chainguard/python:latest-dev@sha256:e2736acdf97f2b1cb59545f4f26317b18a953e90e59fa4c212a782315b248111 AS build
 
 # Chainguard's -dev variants still default to the nonroot user, so writing to
 # / is denied. Switch to root for the build only — this stage is discarded, and
@@ -39,7 +39,7 @@ RUN pip install --no-cache-dir .
 USER nonroot
 
 # --- runtime ----------------------------------------------------------------
-FROM cgr.dev/chainguard/python:latest@sha256:e2ade4461c3ff67acf054214645e0b4e41b99140d7096ed64c1e15f6fe985cdf
+FROM cgr.dev/chainguard/python:latest@sha256:f33049a06b10d6bd729e08a181094774ca5e9c7b0cf1bbe674aa977cd5258daa
 
 LABEL org.opencontainers.image.title="truenas-scale-exporter" \
       org.opencontainers.image.description="Prometheus exporter for TrueNAS over the JSON-RPC 2.0 WebSocket API" \
