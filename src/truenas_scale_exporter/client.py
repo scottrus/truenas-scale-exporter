@@ -8,6 +8,7 @@ on it survives the upgrade that breaks every REST-based integration.
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import json
 import logging
@@ -90,6 +91,7 @@ class TrueNASClient:
         self._ids = itertools.count(1)
         self._lock = threading.Lock()
         self._ws = None
+        self._ws_stack: contextlib.ExitStack | None = None
 
         if verify_tls:
             self._ssl_context: ssl.SSLContext | None = ssl.create_default_context()
@@ -113,7 +115,15 @@ class TrueNASClient:
             kwargs["ssl"] = self._ssl_context
 
         log.debug("connecting to %s", self._url)
-        self._ws = connect(self._url, **kwargs)
+        # The connection outlives this method, so a `with` block does not fit.
+        # websockets 17.1 deprecates using connect()'s return value without
+        # entering it as a context manager. An ExitStack enters it here and
+        # exits it in close(). This works on every supported websockets version,
+        # and also if a later release makes connect() return a reconnecting
+        # wrapper by default: that wrapper's __enter__ yields the connection.
+        stack = contextlib.ExitStack()
+        self._ws = stack.enter_context(connect(self._url, **kwargs))
+        self._ws_stack = stack
 
         try:
             self._authenticate()
@@ -131,10 +141,11 @@ class TrueNASClient:
         log.debug("authenticated against %s", self._url)
 
     def close(self) -> None:
-        ws, self._ws = self._ws, None
-        if ws is not None:
+        stack, self._ws_stack = self._ws_stack, None
+        self._ws = None
+        if stack is not None:
             try:
-                ws.close()
+                stack.close()
             except Exception:  # pragma: no cover - best-effort teardown
                 pass
 
